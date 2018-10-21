@@ -1,0 +1,138 @@
+#include <msp430.h>
+
+volatile int bit = 0, size = 0;     // initialize and type define variables for later use
+
+int main(void)
+{
+  WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+
+/* Port Configuration */
+  P1DIR |= BIT3;                        //Sets Pin 1.3 as output
+  P2DIR |= BIT3;                        //Sets Pin 2.3 as output
+  P2DIR |= BIT0;
+  P2OUT &= ~BIT0;
+  P1OUT &= ~BIT3;
+  P2OUT &= ~BIT3;                       //Sets Pin 1.3 as output
+  P3SEL |= BIT4;
+  P3SEL |= BIT3;
+  P4SEL |= BIT4 + BIT5;
+
+/* Clock Configuration */
+  UCA1CTL1 |= UCSWRST;
+  UCA1CTL1 |= UCSSEL_2;                     // SMCLK
+  UCA1BR0 = 6;                            // 1MHz 9600
+  UCA1BR1 = 0;                              // 1MHz 9600
+  UCA1MCTL |= UCBRS_0;                        // Modulation
+  UCA1MCTL |= UCBRF_13;                        // Modulation
+  UCA1MCTL |= UCOS16;                        // Modulation
+  UCA1CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
+  UCA1IE |= UCRXIE;
+
+
+/* Capture & Control Configuration */
+  TA0CCTL1 = CCIE;
+  TA0CCTL2 = CCIE;
+  TA0CCTL3 = CCIE;
+  TA0CTL = TASSEL_1 + MC_1 + ID_0 + TAIE;                //SMCLK UPMODE, CLEAR
+
+/* Initialize Registers to 0 */
+  TA0CCR1 = 0;
+  TA0CCR2 = 0;
+  TA0CCR3 = 0;
+  TA0CCR0 = 255;   //initialized Register to 255
+
+
+  __bis_SR_register(GIE);       // Enter LPM0, interrupts enabled
+  while(1)
+  {
+      if (TA0CCR1 == 0)  //Checks to see if the Red LED should be on
+      {
+          P1DIR &= ~BIT3;    // Turns the LED pin off as long as the CCR register is at 0
+      }
+          else
+          {
+          P1DIR |= BIT3;    // If the CCR1 is anything but 0 the LED turns on
+          }
+      if (TA0CCR2 == 0)  //Checks to see if the Green LED should be on
+            {
+                P2DIR &= ~BIT0;   // Turns the LED pin off as long as the CCR register is at 0
+            }
+                else
+                {
+                P2DIR |= BIT0;   // If the CCR2 is anything but 0 the LED turns on
+                }
+      if (TA0CCR3 == 0)  //Checks to see if the Green LED should be on
+            {
+                P2DIR &= ~BIT3;  // Turns the LED pin off as long as the CCR register is at 0
+            }
+                else
+                {
+                P2DIR |= BIT3;   // If the CCR3 is anything but 0 the LED turns on
+                }
+
+  }
+}
+
+#pragma vector=TIMER0_A1_VECTOR
+__interrupt void Timer0_A1_ISR (void) //CONTROLS PWM
+{
+
+    switch(TA0IV)
+    {
+    case 2: //Case 2 defines interrupt on CCR1
+
+        P1OUT &= ~BIT3;     //turn LED off for CCR1 interrupt
+
+        break;
+
+    case 4: //Case 2 defines interrupt on CCR1
+
+            P2OUT &= ~BIT0;     //turn LED off for CCR1 interrupt
+
+            break;
+
+    case 6: //Case 2 defines interrupt on CCR1
+
+            P2OUT &= ~BIT3;     //turn LED off for CCR1 interrupt
+            break;
+
+    case 14:
+
+        P1OUT |= BIT3;
+            P2OUT |= (BIT0 | BIT3);
+            break;
+
+    }
+}
+#pragma vector=USCI_A1_VECTOR           // Interrupt vector definition
+__interrupt void USCI_A1_ISR(void) {    // Interrupt function decleration
+
+    switch(bit) {                       // Switch statement for byte position
+        case 0 :                        // Sets Length Byte
+        while(!(UCA1IFG & UCTXIFG));    // Checks to make sure TX Buffer is ready
+        size = UCA1RXBUF;
+        UCA1TXBUF = UCA1RXBUF - 3;      // Sends length byte to the Transfer Buffer
+        break;
+        case 1 :                        // Red LED Set
+            TA0CCR1 = (UCA1RXBUF);      // Sets CCR1 value to incoming byte
+            break;
+        case 2 :                        // Green LED Set
+            TA0CCR2 = (UCA1RXBUF);      // Sets CCR2 value to incoming byte
+            break;
+        case 3 :                        // Blue LED Set
+            TA0CCR3 = (UCA1RXBUF);      // Sets CCR3 value to incoming byte
+            break;
+        default:                        // For all of the other bytes
+            while(!(UCA1IFG & UCTXIFG));// Checks to make sure TX buffer is ready
+            UCA1TXBUF = UCA1RXBUF;      // Passes incoming byte from recieve bufffer to outgoing byte through the transfer buffer
+        break;
+    }
+
+        if(bit != size ){            // If the value for bit is not equal to the size variable
+            bit ++;                   // Increment the bit value
+        } else {                        // If the value for bit is equal to size then
+
+            bit = 0;                    // Resets the bit value
+        }
+    }
+
